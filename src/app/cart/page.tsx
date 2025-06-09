@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { useCart } from '../context/CartContext';
+import { trackCartRemoval, clearCartTimer } from '@/lib/analytics'; // Adjust path as needed
 
 export default function CartPage() {
   const {
@@ -11,10 +12,47 @@ export default function CartPage() {
     removeFromCart,
   } = useCart();
 
+  // You might want to get userId from your auth context or props
+  const userId = undefined; // Replace with actual user ID if available
+
   const totalPrice = cartItems.reduce(
     (acc, item) => acc + item.price * item.quantity,
     0
   );
+
+  // Enhanced remove function with analytics
+  const handleRemoveWithAnalytics = async (id:  number, name: string, price: number, quantity: number) => {
+    try {
+      // Track cart removal with analytics (this will deduct -5 points)
+      await trackCartRemoval(id, userId, {
+        productName: name,
+        quantity: quantity,
+        totalValue: price * quantity,
+        removalMethod: 'manual_button_click',
+        removedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error tracking cart removal:', error);
+    }
+    
+    // Always remove from cart regardless of analytics success/failure
+    removeFromCart(id);
+  };
+
+  // Enhanced checkout function
+  const handleCheckout = () => {
+    try {
+      // Clear cart timers for all items (no penalty for successful checkout)
+      cartItems.forEach(item => {
+        clearCartTimer(item.id);
+      });
+    } catch (error) {
+      console.error('Error clearing cart timers:', error);
+    }
+    
+    // Your existing checkout logic
+    alert('Proceeding to checkout...');
+  };
 
   return (
     <main className="min-h-screen bg-black text-white px-6 py-10 max-w-5xl mx-auto">
@@ -60,7 +98,7 @@ export default function CartPage() {
                     </div>
 
                     <button
-                      onClick={() => removeFromCart(id)}
+                      onClick={() => handleRemoveWithAnalytics(id, name, price, quantity)}
                       className="text-red-500 hover:text-red-400 font-semibold transition"
                       aria-label={`Remove ${name} from cart`}
                     >
@@ -82,7 +120,7 @@ export default function CartPage() {
             </div>
             <button
               className="mt-4 sm:mt-0 px-8 py-3 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition"
-              onClick={() => alert('Proceeding to checkout...')}
+              onClick={handleCheckout}
             >
               Checkout
             </button>
