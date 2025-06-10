@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase-config'; // Adjust the path to your Firebase config
 import { getAllProductScores } from '../../lib/analytics';
 
 interface ProductScore {
@@ -16,25 +18,16 @@ interface ProductScore {
   };
   lastUpdated: any;
 }
-const productNames: Record<string, string> = {
-  '1': 'Dark Minimal Sneakers',
-  '2': 'Black Hoodie',
-  '3': 'Premium Watch',
-  '4': 'Noise Cancelling Headphones',
-  '5': 'Minimalist Backpack',
-  '6': 'Wireless Earbuds',
-  '7': 'Premium Leather Wallet',
-  '8': 'Carbon Fiber Phone Case',
-  '9': 'Titanium Sunglasses',
-  '10': 'Smart Fitness Tracker',
-  '11': 'Mechanical Keyboard',
-  '12': 'Portable Charger',
-  '13': 'Premium Denim Jacket',
-  '14': 'Stainless Steel Water Bottle',
-  '15': 'Bluetooth Speaker',
-  '16': 'Gaming Mouse',
-};
 
+interface Product {
+  id: number;
+  name: string;
+  category: string;
+  price: number;
+  image: string;
+  description: string;
+  inStock: boolean;
+}
 
 // Helper function to get score color based on normalized score
 const getScoreColor = (score: number): string => {
@@ -51,27 +44,79 @@ const getProgressWidth = (score: number): string => {
 
 export default function AnalyticsPage() {
   const [productScores, setProductScores] = useState<ProductScore[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Create a map of product IDs to names for quick lookup
+  const productNameMap = products.reduce((acc, product) => {
+    acc[product.id.toString()] = product.name;
+    return acc;
+  }, {} as Record<string, string>);
 
   useEffect(() => {
-    const fetchScores = async () => {
+    const fetchData = async () => {
       try {
+        setLoading(true);
+        
+        // Fetch products from Firebase
+        const productsCollection = collection(db, 'products');
+        const productSnapshot = await getDocs(productsCollection);
+        
+        const productList: Product[] = productSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: data.id,
+            name: data.name,
+            category: data.category,
+            price: data.price,
+            image: data.image,
+            description: data.description,
+            inStock: data.inStock,
+          } as Product;
+        });
+        
+        setProducts(productList);
+        
+        // Fetch analytics scores
         const scores = await getAllProductScores();
         setProductScores(scores);
+        
+        setError(null);
       } catch (error) {
-        console.error('Error fetching scores:', error);
+        console.error('Error fetching data:', error);
+        setError('Failed to load analytics data. Please try again later.');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchScores();
+    fetchData();
   }, []);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-xl">Loading analytics...</div>
+        <div className="flex flex-col items-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
+          <div className="text-xl">Loading analytics...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 text-xl mb-4">⚠️ {error}</div>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="bg-white text-black px-6 py-2 rounded hover:bg-gray-200 transition"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -133,7 +178,7 @@ export default function AnalyticsPage() {
                           #{index + 1}
                         </div>
                         <h2 className="text-xl font-semibold">
-                          {productNames[score.productId.toString()] || `Product ${score.productId}`}
+                          {productNameMap[score.productId.toString()] || `Product ${score.productId}`}
                         </h2>
                       </div>
                       <div className="text-right">
