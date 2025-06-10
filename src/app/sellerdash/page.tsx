@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase-config';
 import { getAllProductScores } from '../../lib/analytics';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LineChart, Line } from 'recharts';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import BundlesSection from '@/components/BundleSection';
@@ -54,32 +54,6 @@ interface MonthlyData {
   orders: number;
 }
 
-// Sample data for the original bar chart
-const monthlyData = [
-  { label: 'Jan', sales: 1200 },
-  { label: 'Feb', sales: 2100 },
-  { label: 'Mar', sales: 800 },
-  { label: 'Apr', sales: 1600 },
-  { label: 'May', sales: 900 },
-  { label: 'Jun', sales: 2500 },
-  { label: 'Jul', sales: 1200 },
-  { label: 'Aug', sales: 2100 },
-  { label: 'Sep', sales: 800 },
-  { label: 'Oct', sales: 1600 },
-  { label: 'Nov', sales: 900 },
-  { label: 'Dec', sales: 2500 },
-];
-
-const weeklyData = [
-  { label: 'Mon', sales: 300 },
-  { label: 'Tue', sales: 500 },
-  { label: 'Wed', sales: 400 },
-  { label: 'Thu', sales: 600 },
-  { label: 'Fri', sales: 550 },
-  { label: 'Sat', sales: 900 },
-  { label: 'Sun', sales: 800 },
-];
-
 // Helper functions for analytics
 const getScoreColor = (score: number): string => {
   if (score >= 80) return 'text-green-400';
@@ -93,15 +67,13 @@ const getProgressWidth = (score: number): string => {
 };
 
 export default function IntegratedSellerDashboard() {
-  // States for original bar chart
-  const [selectedProduct, setSelectedProduct] = useState('all');
-  const [timeFilter, setTimeFilter] = useState('monthly');
+  // States for enhanced bar chart (merged functionality)
+  const [selectedProduct, setSelectedProduct] = useState<string>('all');
+  const [chartType, setChartType] = useState<'quantity' | 'revenue'>('quantity');
 
   // States for sales analytics
   const [salesData, setSalesData] = useState<SalesData[]>([]);
-  const [selectedSalesProduct, setSelectedSalesProduct] = useState<string>('all');
   const [salesMonthlyData, setSalesMonthlyData] = useState<MonthlyData[]>([]);
-  const [chartType, setChartType] = useState<'quantity' | 'revenue'>('quantity');
 
   // States for product analytics
   const [productScores, setProductScores] = useState<ProductScore[]>([]);
@@ -110,8 +82,6 @@ export default function IntegratedSellerDashboard() {
   // Common states
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const filteredData = timeFilter === 'weekly' ? weeklyData : monthlyData;
 
   // Create a map of product IDs to names for quick lookup
   const productNameMap = products.reduce((acc, product) => {
@@ -127,7 +97,7 @@ export default function IntegratedSellerDashboard() {
     if (salesData.length > 0) {
       processSalesMonthlyData();
     }
-  }, [salesData, selectedSalesProduct]);
+  }, [salesData, selectedProduct]);
 
   const fetchAllData = async () => {
     try {
@@ -162,9 +132,14 @@ export default function IntegratedSellerDashboard() {
 
       setSalesData(salesList);
       
-      // Fetch analytics scores
-      const scores = await getAllProductScores();
-      setProductScores(scores);
+      // Fetch analytics scores with error handling
+      try {
+        const scores = await getAllProductScores();
+        setProductScores(scores);
+      } catch (analyticsError) {
+        console.error('Error fetching analytics scores:', analyticsError);
+        setProductScores([]);
+      }
       
       setError(null);
     } catch (error) {
@@ -176,14 +151,24 @@ export default function IntegratedSellerDashboard() {
   };
 
   const processSalesMonthlyData = () => {
-    const filteredSales = selectedSalesProduct === 'all' 
+    const filteredSales = selectedProduct === 'all' 
       ? salesData 
-      : salesData.filter(sale => sale.productName === selectedSalesProduct);
+      : salesData.filter(sale => sale.productName === selectedProduct);
 
     const monthlyGroups: { [key: string]: SalesData[] } = {};
     
     filteredSales.forEach(sale => {
-      const date = sale.date.toDate();
+      // Safe date handling
+      let date: Date;
+      if (sale.date && typeof sale.date.toDate === 'function') {
+        date = sale.date.toDate();
+      } else if (sale.date instanceof Date) {
+        date = sale.date;
+      } else {
+        console.warn('Invalid date format for sale:', sale.id);
+        return;
+      }
+      
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       
       if (!monthlyGroups[monthKey]) {
@@ -202,8 +187,8 @@ export default function IntegratedSellerDashboard() {
 
         return {
           month: monthName,
-          quantity: sales.reduce((sum, sale) => sum + sale.quantity, 0),
-          revenue: sales.reduce((sum, sale) => sum + sale.total, 0),
+          quantity: sales.reduce((sum, sale) => sum + (sale.quantity || 0), 0),
+          revenue: sales.reduce((sum, sale) => sum + (sale.total || 0), 0),
           orders: sales.length
         };
       });
@@ -215,21 +200,22 @@ export default function IntegratedSellerDashboard() {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
-    }).format(value);
+    }).format(value || 0);
   };
 
   const getSalesStats = () => {
-    const filteredSales = selectedSalesProduct === 'all' 
+    const filteredSales = selectedProduct === 'all' 
       ? salesData 
-      : salesData.filter(sale => sale.productName === selectedSalesProduct);
+      : salesData.filter(sale => sale.productName === selectedProduct);
+
+    const totalRevenue = filteredSales.reduce((sum, sale) => sum + (sale.total || 0), 0);
+    const totalOrders = filteredSales.length;
 
     return {
-      totalOrders: filteredSales.length,
-      totalQuantity: filteredSales.reduce((sum, sale) => sum + sale.quantity, 0),
-      totalRevenue: filteredSales.reduce((sum, sale) => sum + sale.total, 0),
-      avgOrderValue: filteredSales.length > 0 
-        ? filteredSales.reduce((sum, sale) => sum + sale.total, 0) / filteredSales.length 
-        : 0
+      totalOrders,
+      totalQuantity: filteredSales.reduce((sum, sale) => sum + (sale.quantity || 0), 0),
+      totalRevenue,
+      avgOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0
     };
   };
 
@@ -275,55 +261,11 @@ export default function IntegratedSellerDashboard() {
       {/* Header */}
       <h1 className="text-3xl font-bold mb-8 text-center">Seller Dashboard</h1>
 
-      {/* Sales Overview Section */}
+      {/* Enhanced Sales Overview Section */}
       <div className="mb-12">
-        <h2 className="text-2xl font-semibold mb-4">Sales Overview</h2>
+        <h2 className="text-2xl font-semibold mb-4">Sales Analytics</h2>
 
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
-          <Select onValueChange={setSelectedProduct} defaultValue="all">
-            <SelectTrigger className="w-[180px] bg-zinc-800 border-none text-white">
-              <SelectValue placeholder="Filter by Product" />
-            </SelectTrigger>
-            <SelectContent className="bg-zinc-800 text-white">
-              <SelectItem value="all">All Products</SelectItem>
-              <SelectItem value="charger">Portable Charger</SelectItem>
-              <SelectItem value="watch">Premium Watch</SelectItem>
-              <SelectItem value="hoodie">Hoodie</SelectItem>
-              <SelectItem value="keyboard">Keyboard</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select onValueChange={setTimeFilter} defaultValue="monthly">
-            <SelectTrigger className="w-[180px] bg-zinc-800 border-none text-white">
-              <SelectValue placeholder="Filter by Time" />
-            </SelectTrigger>
-            <SelectContent className="bg-zinc-800 text-white">
-              <SelectItem value="monthly">Monthly</SelectItem>
-              <SelectItem value="weekly">Weekly</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <Card className="bg-zinc-800 text-white shadow-xl">
-          <CardContent className="p-4">
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={filteredData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                <XAxis dataKey="label" stroke="#ccc" />
-                <YAxis stroke="#ccc" />
-                <Tooltip contentStyle={{ backgroundColor: '#222', border: 'none' }} />
-                <Legend />
-                <Bar dataKey="sales" fill="#10b981" />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Sales Analytics Section */}
-      <div className="mb-12">
-        <h2 className="text-2xl font-semibold mb-4">Detailed Sales Analytics</h2>
-        
-        {/* Controls */}
+        {/* Enhanced Controls */}
         <div className="bg-zinc-800 rounded-lg p-6 mb-6">
           <div className="flex flex-wrap gap-4 items-center">
             <div className="flex-1 min-w-64">
@@ -331,8 +273,8 @@ export default function IntegratedSellerDashboard() {
                 Select Product
               </label>
               <select
-                value={selectedSalesProduct}
-                onChange={(e) => setSelectedSalesProduct(e.target.value)}
+                value={selectedProduct}
+                onChange={(e) => setSelectedProduct(e.target.value)}
                 className="w-full px-3 py-2 border border-zinc-600 rounded-md bg-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-green-500"
               >
                 <option value="all">All Products</option>
@@ -380,14 +322,14 @@ export default function IntegratedSellerDashboard() {
           </div>
         </div>
 
-        {/* Sales Chart */}
+        {/* Enhanced Bar Chart */}
         <Card className="bg-zinc-800 text-white shadow-xl">
           <CardContent className="p-6">
             <h3 className="text-xl font-semibold mb-4">
               {chartType === 'quantity' ? 'Quantity Sold' : 'Revenue'} Trends
             </h3>
             <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={salesMonthlyData}>
+              <BarChart data={salesMonthlyData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#444" />
                 <XAxis 
                   dataKey="month"
@@ -408,15 +350,12 @@ export default function IntegratedSellerDashboard() {
                   }}
                 />
                 <Legend />
-                <Line
-                  type="monotone"
+                <Bar
                   dataKey={chartType}
-                  stroke={chartType === 'quantity' ? '#3B82F6' : '#10B981'}
-                  strokeWidth={3}
+                  fill={chartType === 'quantity' ? '#3B82F6' : '#10B981'}
                   name={chartType === 'quantity' ? 'Quantity Sold' : 'Revenue'}
-                  dot={{ fill: chartType === 'quantity' ? '#3B82F6' : '#10B981', strokeWidth: 2, r: 4 }}
                 />
-              </LineChart>
+              </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
@@ -499,9 +438,9 @@ export default function IntegratedSellerDashboard() {
                       <div className="w-full bg-zinc-700 rounded-full h-2">
                         <div
                           className={`h-2 rounded-full transition-all duration-300 ${
-                            score.normalizedScore >= 80 ? 'bg-green-400' :
-                            score.normalizedScore >= 60 ? 'bg-yellow-400' :
-                            score.normalizedScore >= 40 ? 'bg-orange-400' : 'bg-red-400'
+                            (score.normalizedScore || 0) >= 80 ? 'bg-green-400' :
+                            (score.normalizedScore || 0) >= 60 ? 'bg-yellow-400' :
+                            (score.normalizedScore || 0) >= 40 ? 'bg-orange-400' : 'bg-red-400'
                           }`}
                           style={{ width: getProgressWidth(score.normalizedScore || 0) }}
                         ></div>
