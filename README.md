@@ -1,15 +1,15 @@
-#PRISM - Predictive Retail Intelligence & Stock Management  
+# PRISM - Predictive Retail Intelligence & Stock Management  
 **Team:** Pixel Pirates  
 **Hackathon:** CyFuture AI - Phase I Evaluation  
 **Project ID:** cyf1432  
-##Project Overview
+## Project Overview
 PRISM is an innovative AI-driven solution designed for online retailers seeking to revolutionize their inventory management and sales strategies. Unlike traditional reactive approaches, PRISM empowers sellers with intelligent, data-backed insights to predict demand, optimize inventory, and personalize discounts in real-time.  
 Because the future of retail isn't reactive. It's predictive.  
 
-##Demo Implementation
+## Demo Implementation
 **Important Note**
 This repository's branch " behaviour analytics " contains a demo implementation created for Phase I evaluation purposes. The AI models described in the architecture are implemented as rule-based decision systems rather than fully trained machine learning models.  
-##Demo Features
+## Demo Features
   
 Simulated behavioral tracking  
 Rule-based pricing recommendations  
@@ -17,14 +17,14 @@ Mock inventory alerts
 Sample customer segmentation  
 Dashboard with synthetic data  
 
-##Demo Limitations
+## Demo Limitations
   
 AI models are simplified rule-based systems  
 Real-time learning capabilities are simulated  
 Limited to demonstration data sets  
 Full ML pipeline not implemented  
 
-##Technical Architecture(of the full actual version) 
+## Technical Architecture(of the full actual version) 
 **Tier 1: Real-Time Behavioral Inference (< 50ms)**  
   
 Frontend Tracking: Lightweight JavaScript SDK captures user interactions  
