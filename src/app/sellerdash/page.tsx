@@ -2,14 +2,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
-import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase-config';
 import { getAllProductScores } from '../../lib/analytics';
 import { Card, CardContent } from '@/components/ui/card';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import BundlesSection from '@/components/BundleSection';
-
-// Types
+import { AddProductForm } from '@/components/AddProductForm';
+import { EditProductForm } from '@/components/EditProductForm';
+import { ProductList } from '@/components/ProductList';
+import { Product , ProductFormData } from '@/types/Product';
 interface SalesData {
   id: string;
   buyer: string;
@@ -37,15 +38,6 @@ interface ProductScore {
   lastUpdated: any;
 }
 
-interface Product {
-  id: number | string;
-  name: string;
-  category: string;
-  price: number;
-  image: string;
-  description: string;
-  inStock: boolean;
-}
 
 interface MonthlyData {
   month: string;
@@ -67,7 +59,7 @@ const getProgressWidth = (score: number): string => {
 };
 
 export default function IntegratedSellerDashboard() {
-  // States for enhanced bar chart (merged functionality)
+  // States for enhanced bar chart
   const [selectedProduct, setSelectedProduct] = useState<string>('all');
   const [chartType, setChartType] = useState<'quantity' | 'revenue'>('quantity');
 
@@ -78,6 +70,13 @@ export default function IntegratedSellerDashboard() {
   // States for product analytics
   const [productScores, setProductScores] = useState<ProductScore[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+
+  // Product management states
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [showProductManager, setShowProductManager] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Common states
   const [loading, setLoading] = useState(true);
@@ -117,6 +116,8 @@ export default function IntegratedSellerDashboard() {
           image: data.image,
           description: data.description,
           inStock: data.inStock,
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt,
         } as Product;
       });
       
@@ -227,6 +228,63 @@ export default function IntegratedSellerDashboard() {
     }
   };
 
+  // Product management functions
+  const refreshProducts = () => {
+    setRefreshTrigger(prev => prev + 1);
+    fetchAllData();
+  };
+
+  const handleEditProduct = (product: Product) => {
+    setEditingProduct(product);
+    setShowEditForm(true);
+  };
+
+  const handleAddSuccess = () => {
+    setShowAddForm(false);
+    refreshProducts();
+  };
+
+  const handleEditSuccess = () => {
+    setShowEditForm(false);
+    setEditingProduct(null);
+    refreshProducts();
+  };
+
+  const handleAddCancel = () => {
+    setShowAddForm(false);
+  };
+
+  const handleEditCancel = () => {
+    setShowEditForm(false);
+    setEditingProduct(null);
+  };
+
+  const handleDeleteProduct = async (product: Product) => {
+    if (!confirm(`Are you sure you want to delete "${product.name}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Find and delete the document
+      const productsSnapshot = await getDocs(collection(db, 'products'));
+      const productDoc = productsSnapshot.docs.find(doc => doc.data().id === product.id);
+      
+      if (productDoc) {
+        await deleteDoc(doc(db, 'products', productDoc.id));
+      }
+      
+      await fetchAllData(); // Refresh data
+      alert('Product deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      alert('Failed to delete product. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-900 text-white flex items-center justify-center">
@@ -259,7 +317,36 @@ export default function IntegratedSellerDashboard() {
   return (
     <div className="min-h-screen bg-zinc-900 text-white p-6">
       {/* Header */}
-      <h1 className="text-3xl font-bold mb-8 text-center">Seller Dashboard</h1>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Seller Dashboard</h1>
+        <div className="flex gap-4">
+          <button
+            onClick={() => setShowProductManager(!showProductManager)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold transition"
+          >
+            {showProductManager ? 'Hide' : 'Manage'} Products
+          </button>
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition"
+          >
+            Add Product
+          </button>
+        </div>
+      </div>
+
+      {/* Product Management Section */}
+      {showProductManager && (
+        <div className="mb-12">
+          <h2 className="text-2xl font-semibold mb-6">Product Management</h2>
+          <div className="bg-zinc-800 rounded-lg p-6">
+            <ProductList 
+              onEdit={handleEditProduct}
+              key={refreshTrigger}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Enhanced Sales Overview Section */}
       <div className="mb-12">
@@ -524,6 +611,23 @@ export default function IntegratedSellerDashboard() {
           </div>
         )}
       </div>
+
+      {/* Add Product Modal */}
+      {showAddForm && (
+        <AddProductForm
+          onSuccess={handleAddSuccess}
+          onCancel={handleAddCancel}
+        />
+      )}
+
+      {/* Edit Product Modal */}
+      {showEditForm && editingProduct && (
+        <EditProductForm
+          product={editingProduct}
+          onSuccess={handleEditSuccess}
+          onCancel={handleEditCancel}
+        />
+      )}
       
       <div className="mt-8 text-center">
         <button
