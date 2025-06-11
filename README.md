@@ -1,4 +1,9 @@
- This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CYFUTURE 
+Demo of the PRISM-Predictive Retail Intelligence Stock Management created for the Phase I evaluation of the cyfuture ai hackathon.
+consider the branch "behaviour anallytics" for this evaluation .
+
+
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
 
@@ -35,6 +40,3 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details. -->
 
-# CYFUTURE 
-Demo of the PRISM-Predictive Retail Intelligence Stock Management created for the Phase I evaluation of the cyfuture ai hackathon.
-consider the branch "behaviour anallytics" for this evaluation .
