@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { bundleAnalysisService, ProductPair } from '../app/bundle/bundle';
+import { bundleAnalysisService, ProductPair } from '@/app/bundle/bundle';
 
 export default function BundlesSection() {
   const [bundles, setBundles] = useState<ProductPair[]>([]);
