@@ -12,14 +12,14 @@ For Phase I evaluation please refer the branch "behaviour analytics" as it conta
 ## Demo Features
   
 Simulated behavioral tracking  
-Rule-based pricing recommendations
-Ai - based inventory management 
-Sample customer segmentation  
+Rule-based pricing recommendations  
+Ai - based inventory management   
+Sample customer segmentation    
 Dashboard with synthetic data  
 
 ## Demo Limitations
   
-Other AI models are simplified rule-based systems  
+Some AI models are simplified rule-based systems  
 Real-time learning capabilities are simulated  
 Limited to demonstration data sets  
 Full ML pipeline not implemented(will be done for fully scaled version)  
