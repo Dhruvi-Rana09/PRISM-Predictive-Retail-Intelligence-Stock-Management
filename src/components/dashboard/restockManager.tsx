@@ -48,12 +48,19 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      await Promise.all([
-        fetchStockData(),
-        loadPredictionData()
-      ]);
+      // Always load stock data first
+      await fetchStockData();
+      
+      // Try to load prediction data, but don't fail if it doesn't work
+      try {
+        await loadPredictionData();
+      } catch (predictionError) {
+        console.warn('Could not load prediction data:', predictionError);
+        // App will still work without predictions, just won't show restock recommendations
+      }
     } catch (error) {
       console.error('Error loading initial data:', error);
+      alert('Error loading stock data. Please refresh the page.');
     } finally {
       setLoading(false);
     }
@@ -82,45 +89,69 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
 
   const loadPredictionData = async () => {
     try {
-      let csvData: string;
+      let csvData: string = '';
 
       // Try different methods to load CSV
       if (typeof window !== 'undefined' && 'fs' in window) {
         // Claude artifacts environment
-        csvData = await (window as any).fs.readFile('Predictions.csv', { encoding: 'utf8' });
+        try {
+          csvData = await (window as any).fs.readFile('Predictions.csv', { encoding: 'utf8' });
+        } catch (fsError) {
+          console.log('File not found with fs API, trying fetch...');
+          // Fallback to fetch if fs fails
+          const response = await fetch('/Predictions.csv');
+          if (response.ok) {
+            csvData = await response.text();
+          } else {
+            throw new Error('CSV file not found');
+          }
+        }
       } else {
         // Regular web environment - try multiple paths
         const possiblePaths = [
-          './predictions.csv',
-          '/predictions.csv',
-          'predictions.csv',
-          './dashboard/predictions.csv',
-          '/dashboard/predictions.csv'
+          '/Predictions.csv',
+          './Predictions.csv',
+          'Predictions.csv',
+          '/public/Predictions.csv',
+          './public/Predictions.csv'
         ];
         
         let loadSuccess = false;
+        let lastError: Error | null = null;
+        
         for (const path of possiblePaths) {
           try {
+            console.log(`Trying to load CSV from: ${path}`);
             const response = await fetch(path);
             if (response.ok) {
               csvData = await response.text();
               loadSuccess = true;
+              console.log(`Successfully loaded CSV from: ${path}`);
               break;
             }
           } catch (err) {
+            lastError = err as Error;
             continue;
           }
         }
         
         if (!loadSuccess) {
-          throw new Error('CSV file not found in any expected location');
+          console.error('All paths failed:', possiblePaths);
+          throw new Error(`CSV file not found. Tried paths: ${possiblePaths.join(', ')}. Last error: ${lastError?.message}`);
         }
+      }
+
+      if (!csvData.trim()) {
+        throw new Error('CSV file is empty');
       }
 
       return parseCsvData(csvData);
     } catch (error) {
       console.error('Error loading prediction data:', error);
-      throw new Error('Failed to load prediction CSV file');
+      // Don't throw here, instead return empty array to prevent app crash
+      setPredictionData([]);
+      alert(`Failed to load CSV file: ${error}. Please check if Predictions.csv exists in the public folder.`);
+      return [];
     }
   };
 
