@@ -1,8 +1,9 @@
-// AddProductForm.tsx
+// AddProductForm.tsx - Updated with Similarity Analysis
 import React, { useState } from 'react';
 import { Product, ProductFormData } from '../types/Product';
 import { ProductService } from '../services/productServices';
 import { ImageService } from '../services/imageService';
+import { ProductSimilarityService } from '../services/productSimilarityService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -73,6 +74,20 @@ export const AddProductForm: React.FC<AddProductFormProps> = ({
     }
   };
 
+  // Function to analyze similarity during product addition
+  const analyzeSimilarity = async (productData: Product) => {
+    try {
+      console.log('🔄 Starting similarity analysis...');
+      
+      // Log detailed similarity analysis to console
+      await ProductSimilarityService.logSimilarityAnalysis(productData);
+      
+    } catch (error) {
+      console.error('Error during similarity analysis:', error);
+      console.log('⚠️ Similarity analysis failed, but product will still be added.');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -107,9 +122,15 @@ export const AddProductForm: React.FC<AddProductFormProps> = ({
         updatedAt: null  // Will be set by service
       };
 
+      // Perform similarity analysis BEFORE adding the product
+      console.log('🔍 Running similarity analysis...');
+      await analyzeSimilarity(productToAdd);
+
+      // Add the product to Firebase
+      console.log('💾 Adding product to Firebase...');
       await ProductService.addProduct(productToAdd);
 
-      alert('Product added successfully!');
+      alert('Product added successfully! Check console for similarity analysis.');
       onSuccess();
     } catch (error: any) {
       console.error('Error adding product:', error);
@@ -244,17 +265,23 @@ export const AddProductForm: React.FC<AddProductFormProps> = ({
                 disabled={loading}
                 className="flex-1"
               >
-                {loading ? 'Adding...' : 'Add Product'}
+                {loading ? 'Adding & Analyzing...' : 'Add Product'}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 onClick={onCancel}
                 className="flex-1"
+                disabled={loading}
               >
                 Cancel
               </Button>
             </div>
+
+            {/* Info Text */}
+            <p className="text-xs text-muted-foreground text-center pt-2">
+              Similarity analysis will run automatically when adding the product. Check console for results.
+            </p>
           </form>
         </CardContent>
       </Card>

@@ -1,21 +1,17 @@
-
-import { NextApiRequest, NextApiResponse } from 'next';
+import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  if (req.method !== 'DELETE') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
+export async function DELETE(request: NextRequest) {
   try {
-    const { imagePath } = req.body;
+    const body = await request.json();
+    const { imagePath } = body;
 
     if (!imagePath) {
-      return res.status(400).json({ error: 'No image path provided' });
+      return NextResponse.json(
+        { error: 'No image path provided' },
+        { status: 400 }
+      );
     }
 
     // Remove leading slash if present
@@ -24,15 +20,71 @@ export default async function handler(
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
+      return NextResponse.json(
+        { error: 'File not found' },
+        { status: 404 }
+      );
     }
 
     // Delete the file
     fs.unlinkSync(filePath);
 
-    res.status(200).json({ message: 'File deleted successfully' });
+    return NextResponse.json(
+      { message: 'File deleted successfully' },
+      { status: 200 }
+    );
   } catch (error) {
     console.error('Delete error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// Your ImageService class
+export class ImageService {
+  static async uploadImage(file: File): Promise<string> {
+    try {
+      const timestamp = Date.now();
+      const fileExtension = file.name.split('.').pop();
+      const fileName = `product_${timestamp}.${fileExtension}`;
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('fileName', fileName);
+      
+      const response = await fetch('/api/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to upload image');
+      }
+      
+      const data = await response.json();
+      return data.imagePath || `/${fileName}`;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      throw new Error('Failed to upload image');
+    }
+  }
+
+  static async deleteImage(imagePath: string): Promise<void> {
+    try {
+      const response = await fetch('/api/delete-image', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imagePath }),
+      });
+      
+      if (!response.ok) {
+        console.warn(`Failed to delete image: ${response.status}`);
+      }
+    } catch (error) {
+      console.warn('Failed to delete image:', error);
+      // Don't throw here as it's not critical
+    }
   }
 }
