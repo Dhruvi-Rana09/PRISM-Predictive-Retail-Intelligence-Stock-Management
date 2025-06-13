@@ -29,9 +29,6 @@ interface RestockManagerProps {
   onRestockComplete: () => void;
 }
 
-// Configuration - CSV file in same folder
-const CSV_FILE_PATH = './Predictions.csv';
-
 export default function RestockManager({ products, onRestockComplete }: RestockManagerProps) {
   const [stockData, setStockData] = useState<StockData[]>([]);
   const [predictionData, setPredictionData] = useState<PredictionData[]>([]);
@@ -40,6 +37,7 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
   const [loading, setLoading] = useState(false);
   const [isProcessingRestock, setIsProcessingRestock] = useState(false);
   const [showRestockSection, setShowRestockSection] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadInitialData();
@@ -47,20 +45,22 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
 
   const loadInitialData = async () => {
     setLoading(true);
+    setError(null);
+    
     try {
       // Always load stock data first
       await fetchStockData();
       
-      // Try to load prediction data, but don't fail if it doesn't work
+      // Try to load prediction data
       try {
         await loadPredictionData();
       } catch (predictionError) {
         console.warn('Could not load prediction data:', predictionError);
-        // App will still work without predictions, just won't show restock recommendations
+        setError('Prediction data unavailable. Restock recommendations will be limited.');
       }
     } catch (error) {
       console.error('Error loading initial data:', error);
-      alert('Error loading stock data. Please refresh the page.');
+      setError('Failed to load stock data. Please refresh the page.');
     } finally {
       setLoading(false);
     }
@@ -95,25 +95,23 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
       if (typeof window !== 'undefined' && 'fs' in window) {
         // Claude artifacts environment
         try {
-          csvData = await (window as any).fs.readFile('Predictions.csv', { encoding: 'utf8' });
+          csvData = await (window as any).fs.readFile('predictions.csv', { encoding: 'utf8' });
         } catch (fsError) {
           console.log('File not found with fs API, trying fetch...');
-          // Fallback to fetch if fs fails
-          const response = await fetch('/Predictions.csv');
-          if (response.ok) {
-            csvData = await response.text();
-          } else {
-            throw new Error('CSV file not found');
-          }
+          throw new Error('CSV file not found in artifacts environment');
         }
       } else {
-        // Regular web environment - try multiple paths
+        // Regular web environment - Updated paths based on your file structure
         const possiblePaths = [
-          '/Predictions.csv',
-          './Predictions.csv',
-          'Predictions.csv',
-          '/public/Predictions.csv',
-          './public/Predictions.csv'
+          '/predictions.csv',
+          './predictions.csv',
+          'predictions.csv',
+          '/src/components/dashboard/predictions.csv',
+          './src/components/dashboard/predictions.csv',
+          '../predictions.csv', // Relative path from current component location
+          process.env.NODE_ENV === 'development' 
+            ? '/src/components/dashboard/predictions.csv' 
+            : '/predictions.csv'
         ];
         
         let loadSuccess = false;
@@ -128,15 +126,17 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
               loadSuccess = true;
               console.log(`Successfully loaded CSV from: ${path}`);
               break;
+            } else {
+              console.log(`Failed to load from ${path}: ${response.status} ${response.statusText}`);
             }
           } catch (err) {
             lastError = err as Error;
+            console.log(`Error loading from ${path}:`, err);
             continue;
           }
         }
         
         if (!loadSuccess) {
-          console.error('All paths failed:', possiblePaths);
           throw new Error(`CSV file not found. Tried paths: ${possiblePaths.join(', ')}. Last error: ${lastError?.message}`);
         }
       }
@@ -145,13 +145,11 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
         throw new Error('CSV file is empty');
       }
 
-      return parseCsvData(csvData);
+      return await parseCsvData(csvData);
     } catch (error) {
       console.error('Error loading prediction data:', error);
-      // Don't throw here, instead return empty array to prevent app crash
       setPredictionData([]);
-      alert(`Failed to load CSV file: ${error}. Please check if Predictions.csv exists in the public folder.`);
-      return [];
+      throw error; 
     }
   };
 
@@ -161,36 +159,51 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
         header: true,
         skipEmptyLines: true,
         dynamicTyping: false,
+        delimitersToGuess: [',', '\t', '|', ';'],
         complete: (results: Papa.ParseResult<any>) => {
           try {
-            const predictions: PredictionData[] = results.data
-              .map((row: any) => {
-                // Handle different possible column names for product code
-                const productCode = row.Product_Code || row.product_code || row.ProductCode || row.productId || row.id;
-                // Handle different possible column names for predicted stock
-                const predicted = row.Predicted || row.predicted || row.predictedStock || row.predicted_stock;
+            if (results.errors.length > 0) {
+              console.warn('CSV parsing warnings:', results.errors);
+            }
 
-                if (!productCode || !predicted) {
+            const predictions: PredictionData[] = results.data
+              .map((row: any, index: number) => {
+                // Handle different possible column names for product code
+                const productCode = row.Product_Code || row.product_code || 
+                                  row.ProductCode || row.productId || row.id || row.ID;
+                
+                // Handle different possible column names for predicted stock
+                const predicted = row.Prediction || row.Predicted || row.predicted || 
+                                row.predictedStock || row.predicted_stock || 
+                                row.PredictedStock || row.demand;
+
+                if (productCode === undefined || productCode === null || productCode === '' ||
+                    predicted === undefined || predicted === null || predicted === '') {
+                  console.warn(`Row ${index + 1}: Missing required data - productCode: ${productCode}, predicted: ${predicted}`);
+                  return null;
+                }
+
+                const numProductCode = Number(productCode);
+                const numPredicted = Number(predicted);
+
+                if (isNaN(numProductCode) || isNaN(numPredicted) || numPredicted < 0) {
+                  console.warn(`Row ${index + 1}: Invalid data - productCode: ${productCode}, predicted: ${predicted}`);
                   return null;
                 }
 
                 return {
-                  productCode: Number(productCode),
-                  predicted: Number(predicted)
+                  productCode: numProductCode,
+                  predicted: numPredicted
                 };
               })
-              .filter((item: PredictionData | null): item is PredictionData => 
-                item !== null && 
-                !isNaN(item.productCode) && 
-                !isNaN(item.predicted) && 
-                item.predicted > 0
-              );
+              .filter((item: PredictionData | null): item is PredictionData => item !== null);
 
             if (predictions.length === 0) {
-              reject(new Error('No valid prediction data found in CSV'));
+              reject(new Error('No valid prediction data found in CSV. Check column names and data format.'));
               return;
             }
 
+            console.log(`Successfully parsed ${predictions.length} prediction records`);
             setPredictionData(predictions);
             resolve(predictions);
           } catch (error) {
@@ -198,14 +211,14 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
           }
         },
         error: (error: Papa.ParseError) => {
-          reject(error);
+          reject(new Error(`CSV parsing error: ${error.message}`));
         }
       });
     });
   };
 
   useEffect(() => {
-    if (stockData.length > 0 && predictionData.length > 0) {
+    if (stockData.length > 0) {
       calculateRestockNeeds();
     }
   }, [stockData, predictionData, products]);
@@ -213,34 +226,53 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
   const calculateRestockNeeds = () => {
     const restockList: RestockItem[] = [];
 
-    predictionData.forEach(prediction => {
-      // Find corresponding product and stock data
-      const product = products.find(p => p.id === prediction.productCode);
-      const stock = stockData.find(s => s.productId === prediction.productCode);
+    if (predictionData.length > 0) {
+      // Use prediction-based calculation
+      predictionData.forEach(prediction => {
+        const product = products.find(p => p.id === prediction.productCode);
+        const stock = stockData.find(s => s.productId === prediction.productCode);
 
-      if (product && stock) {
-        const restockNeeded = Math.max(0, prediction.predicted - stock.stock);
-        
-        let status: 'low' | 'critical' | 'sufficient' = 'sufficient';
-        if (restockNeeded > 0) {
-          const stockRatio = stock.stock / prediction.predicted;
-          if (stockRatio < 0.3) {
-            status = 'critical';
-          } else if (stockRatio < 0.7) {
-            status = 'low';
+        if (product && stock) {
+          const restockNeeded = Math.max(0, prediction.predicted - stock.stock);
+          
+          let status: 'low' | 'critical' | 'sufficient' = 'sufficient';
+          if (prediction.predicted > 0) {
+            const stockRatio = stock.stock / prediction.predicted;
+            if (stockRatio < 0.3) {
+              status = 'critical';
+            } else if (stockRatio < 0.7) {
+              status = 'low';
+            }
           }
-        }
 
-        restockList.push({
-          productId: prediction.productCode,
-          productName: product.name,
-          currentStock: stock.stock,
-          predictedStock: prediction.predicted,
-          restockNeeded,
-          status
-        });
-      }
-    });
+          restockList.push({
+            productId: prediction.productCode,
+            productName: product.name,
+            currentStock: stock.stock,
+            predictedStock: prediction.predicted,
+            restockNeeded,
+            status
+          });
+        }
+      });
+    } else {
+      // Fallback: Basic low stock detection without predictions
+      stockData.forEach(stock => {
+        const product = products.find(p => p.id === stock.productId);
+        if (product && stock.stock < 10) { // Arbitrary low stock threshold
+          let status: 'low' | 'critical' | 'sufficient' = stock.stock < 5 ? 'critical' : 'low';
+          
+          restockList.push({
+            productId: stock.productId,
+            productName: product.name,
+            currentStock: stock.stock,
+            predictedStock: 0, // No prediction available
+            restockNeeded: Math.max(0, 20 - stock.stock), // Suggest restocking to 20 units
+            status
+          });
+        }
+      });
+    }
 
     // Sort by priority: critical first, then by restock amount needed
     restockList.sort((a, b) => {
@@ -289,9 +321,9 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
     setIsProcessingRestock(true);
 
     try {
-      for (const productId of selectedItems) {
+      const updatePromises = Array.from(selectedItems).map(async (productId) => {
         const item = restockItems.find(i => i.productId === productId);
-        if (!item || item.restockNeeded <= 0) continue;
+        if (!item || item.restockNeeded <= 0) return;
 
         const newStock = item.currentStock + item.restockNeeded;
 
@@ -310,7 +342,9 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
             restockAmount: item.restockNeeded
           });
         }
-      }
+      });
+
+      await Promise.all(updatePromises);
 
       alert(`Successfully restocked ${selectedItems.size} items!`);
       setSelectedItems(new Set());
@@ -371,6 +405,16 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
 
       {showRestockSection && (
         <div className="space-y-6">
+          {/* Error Display */}
+          {error && (
+            <div className="bg-yellow-900/20 border border-yellow-500/50 text-yellow-400 p-4 rounded-lg">
+              <div className="flex items-center">
+                <span className="mr-2">⚠️</span>
+                <span>{error}</span>
+              </div>
+            </div>
+          )}
+
           {/* Stock Overview */}
           <div className="bg-zinc-800 rounded-lg p-6">
             <h3 className="text-xl font-semibold mb-4">Stock Overview</h3>
@@ -428,7 +472,9 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
                       <th className="pb-3 font-semibold">Status</th>
                       <th className="pb-3 font-semibold">Product</th>
                       <th className="pb-3 font-semibold">Current Stock</th>
-                      <th className="pb-3 font-semibold">Predicted Need</th>
+                      <th className="pb-3 font-semibold">
+                        {predictionData.length > 0 ? 'Predicted Need' : 'Target Stock'}
+                      </th>
                       <th className="pb-3 font-semibold">Restock Required</th>
                       <th className="pb-3 font-semibold">Priority</th>
                     </tr>
@@ -455,7 +501,9 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
                             </td>
                             <td className="py-3 font-medium">{item.productName}</td>
                             <td className="py-3">{item.currentStock.toLocaleString()}</td>
-                            <td className="py-3">{item.predictedStock.toLocaleString()}</td>
+                            <td className="py-3">
+                              {item.predictedStock > 0 ? item.predictedStock.toLocaleString() : 'N/A'}
+                            </td>
                             <td className="py-3">
                               <span className="font-semibold text-orange-400">
                                 +{item.restockNeeded.toLocaleString()}
@@ -495,7 +543,11 @@ export default function RestockManager({ products, onRestockComplete }: RestockM
           ) : (
             <div className="bg-zinc-800 rounded-lg p-6 text-center">
               <div className="text-green-400 text-lg font-semibold mb-2">✅ All Good!</div>
-              <div className="text-gray-400">No items require restocking at this time.</div>
+              <div className="text-gray-400">
+                {predictionData.length > 0 
+                  ? "No items require restocking based on predictions." 
+                  : "No low stock items detected."}
+              </div>
             </div>
           )}
         </div>
